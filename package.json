@@ -1,0 +1,7 @@
+{
+  "name": "cardsapp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "零依赖静态 PWA：无需安装依赖、无需构建，整个目录直接部署到 HTTPS 静态托管即可"
+}
