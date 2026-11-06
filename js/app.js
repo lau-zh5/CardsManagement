@@ -429,7 +429,7 @@ function openCardForm(typeKey, editing) {
   const t = getType(typeKey);
   const card = editing ? state.cards.find((c) => c.id === state.detailId) : null;
   state.formColor = card?.color || t.color;
-  state.formFaceStyle = card?.faceStyle || (card?.color && card.color !== t.color ? 'solid' : 'brand');
+  state.formFaceStyle = card?.faceStyle || 'brand';
 
   const basics = `
     <div class="field"><label>名称 <span class="req">*</span></label><input data-field="nickname" value="${esc(card?.nickname || '')}" placeholder="给这张卡起个名字"></div>

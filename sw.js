@@ -1,4 +1,4 @@
-const VERSION = 'cardsapp-v2';
+const VERSION = 'cardsapp-v3';
 
 const ASSETS = [
   './',
