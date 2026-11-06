@@ -3,6 +3,20 @@ export const CARD_COLORS = [
   '#C2410C', '#3F4A5A', '#1D6E8C', '#B03060'
 ];
 
+const ico = (body) => `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+
+// 卡类型图标：纯矢量线性图标，不依赖字体与图片资源
+export const TYPE_ICONS = {
+  credit: ico('<rect x="2.5" y="6.5" width="27" height="19" rx="3.5"/><path d="M2.5 12.5h27"/><rect x="6" y="17" width="7" height="5" rx="1.2"/><path d="M18 20.5h8"/>'),
+  debit:  ico('<rect x="2.5" y="7" width="27" height="18" rx="3.5"/><path d="M2.5 13h27"/><path d="M16 16.5v6M12.5 19h7M12.5 22h7"/>'),
+  transit: ico('<rect x="6" y="3.5" width="20" height="23" rx="5"/><path d="M6 15.5h20"/><path d="M11 8.5h10"/><circle cx="11" cy="20.5" r="1.4"/><circle cx="21" cy="20.5" r="1.4"/><path d="M11 26.5l-2 2M21 26.5l2 2"/>'),
+  membership: ico('<path d="M16 3.5l3.9 8 8.8 1.3-6.4 6.2 1.5 8.8L16 23.6l-7.8 4.2 1.5-8.8-6.4-6.2 8.8-1.3z"/>'),
+  gift: ico('<rect x="4.5" y="13" width="23" height="15" rx="2"/><path d="M2.5 8.5h27v4.5h-27z"/><path d="M16 8.5v19.5"/><path d="M16 8.5c-5.5 0-8.5-1-8.5-3.4 0-2 2.4-3.1 4.3-1.6 1.5 1.2 4.2 5 4.2 5z"/><path d="M16 8.5c5.5 0 8.5-1 8.5-3.4 0-2-2.4-3.1-4.3-1.6-1.5 1.2-4.2 5-4.2 5z"/>'),
+  idcard: ico('<rect x="2.5" y="5.5" width="27" height="21" rx="3.5"/><circle cx="11" cy="14" r="3.2"/><path d="M5.5 22.5c.8-2.9 2.8-4.4 5.5-4.4s4.7 1.5 5.5 4.4"/><path d="M20 12h6M20 16.5h6M20 21h4"/>'),
+  access: ico('<rect x="2.5" y="7" width="15.5" height="18" rx="3"/><path d="M6.5 13h7.5M6.5 17.5h5.5"/><path d="M22 11.5a7 7 0 0 1 0 9M26 8.5a11.5 11.5 0 0 1 0 15"/>'),
+  subscription: ico('<path d="M26.5 11.5A11 11 0 1 0 27 19"/><path d="M26.5 5.5v6.2h-6.2"/><path d="M16 10.5v6l4.2 2.2"/>')
+};
+
 const f = (key, label, type = 'text', extra = {}) => ({ key, label, type, ...extra });
 
 export const CARD_TYPES = [

@@ -2,7 +2,7 @@ import {
   $, $$, esc, uid, todayISO, daysUntil, nextOccurrence, fmtDate,
   toast, download, ICONS, isStandalone, isIOS, isSecureContext
 } from './utils.js';
-import { CARD_TYPES, CARD_COLORS, getType, remindFields } from './templates.js';
+import { CARD_TYPES, CARD_COLORS, TYPE_ICONS, getType, remindFields } from './templates.js';
 import { BANK_FACES, faceInfoFor } from './cardfaces.js';
 import { encryptText, decryptText, encryptBackup, decryptBackup } from './crypto.js';
 import * as DB from './db.js';
@@ -290,6 +290,24 @@ function detailHTML() {
     ['卡面素材', info ? `${info.bank} · ${info.cardName}` : null]
   ].filter(([, v]) => v);
 
+  const metaTop = `${esc(t.name)}${card.status && card.status !== '正常' ? ' · ' + esc(card.status) : ''}`;
+  const numLine = card.last4 ? '•••• •••• •••• ' + esc(card.last4) : esc(card.issuer || '');
+  const hero = info
+    ? `<button type="button" class="detail-hero has-photo" style="${heroStyle}" data-action="zoom-face" data-src="${esc(info.image)}" aria-label="放大查看卡面"></button>
+       <div class="detail-caption">
+         <div class="dc-top">${metaTop}</div>
+         <div class="dc-name">${esc(card.nickname)}</div>
+         <div class="dc-num">${numLine}</div>
+       </div>
+       <p class="hint-global" style="margin:-8px 0 18px">轻点卡面可放大查看完整图片</p>`
+    : `<div class="detail-hero" style="${heroStyle}">
+         <div class="dh-top">${metaTop}</div>
+         <div>
+           <div class="dh-name">${esc(card.nickname)}</div>
+           <div class="dh-num">${numLine}</div>
+         </div>
+       </div>`;
+
   return `
     <div class="topbar">
       <button class="icon-btn" data-action="back" aria-label="返回">${ICONS.back}</button>
@@ -298,13 +316,7 @@ function detailHTML() {
         <button class="btn small danger" data-action="delete">删除</button>
       </div>
     </div>
-    <div class="detail-hero${info ? ' has-photo' : ''}" style="${heroStyle}">
-      <div class="dh-top">${esc(t.name)}${card.status && card.status !== '正常' ? ' · ' + esc(card.status) : ''}</div>
-      <div>
-        <div class="dh-name">${esc(card.nickname)}</div>
-        <div class="dh-num">${card.last4 ? '•••• •••• •••• ' + esc(card.last4) : esc(card.issuer || '')}</div>
-      </div>
-    </div>
+    ${hero}
     <div class="section-title" style="margin-top:0">基本信息</div>
     <div class="list">${basics.map(([k, v]) =>
       `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
@@ -393,9 +405,11 @@ function closeSheet() { overlay.innerHTML = ''; }
 function sheetVal(sel) { const el = $(sel, overlay); return el ? el.value.trim() : ''; }
 
 function openTypePicker() {
-  const tiles = CARD_TYPES.map((t) =>
-    `<button class="type-tile" data-action="choose-type" data-key="${t.key}"><span class="glyph">${t.glyph}</span>${esc(t.name)}</button>`
-  ).join('');
+  const tiles = CARD_TYPES.map((t) => `
+    <button class="type-tile" data-action="choose-type" data-key="${t.key}" aria-label="${esc(t.name)}">
+      <span class="type-icon" style="color:${esc(t.color)};background:${esc(t.color)}1A">${TYPE_ICONS[t.key] || TYPE_ICONS.credit}</span>
+      <span class="type-label">${esc(t.name)}</span>
+    </button>`).join('');
   openSheet('选择卡类型', `<p class="hint-global">卡种由字段模板驱动，不同卡会显示不同的填写项。</p><div class="type-grid">${tiles}</div>`);
 }
 
@@ -441,9 +455,13 @@ function openCardForm(typeKey, editing) {
       <option value="brand"${state.formFaceStyle === 'brand' ? ' selected' : ''}>自动 · 真实银行卡面</option>
       <option value="solid"${state.formFaceStyle === 'solid' ? ' selected' : ''}>自定义纯色</option>
     </select><div class="help">按「发卡行 / 发行机构」自动匹配官方真实卡面，同银行不同卡会轮换；未收录的机构回退为纯色</div></div>
-    <div class="field"><label>卡面颜色（选「自定义纯色」时生效）</label><div class="chip-row" style="margin-bottom:0">${CARD_COLORS.map((c) =>
-      `<button class="chip color-chip${state.formColor === c ? ' active' : ''}" data-action="pick-color" data-color="${c}" style="width:34px;height:34px;padding:0;background:${c};border:2px solid ${state.formColor === c ? '#1D1D1F' : 'transparent'}"></button>`
-    ).join('')}</div></div>`;
+    <div class="field" id="face-color-field"${state.formFaceStyle === 'solid' ? '' : ' hidden'}>
+      <label>卡面颜色</label>
+      <div class="chip-row" style="margin-bottom:0">${CARD_COLORS.map((c) =>
+        `<button class="chip color-chip${state.formColor === c ? ' active' : ''}" data-action="pick-color" data-color="${c}" style="width:34px;height:34px;padding:0;background:${c};border:2px solid ${state.formColor === c ? '#1D1D1F' : 'transparent'}"></button>`
+      ).join('')}</div>
+      <div class="help">仅「自定义纯色」下可选；切回自动卡面时会保留你选过的颜色</div>
+    </div>`;
 
   const specifics = t.fields.map((f) => fieldHTML(f, card?.values?.[f.key], editing && f.sensitive)).join('');
   openSheet(editing ? '编辑卡片' : `添加${t.name}`, `
@@ -691,6 +709,14 @@ async function handle(action, el) {
       case 'save-card': await saveCard(el.dataset.key, el.dataset.edit === '1'); break;
       case 'filter': state.filter = el.dataset.key; renderMain(); break;
       case 'open': state.detailId = el.dataset.id; state.tab = 'wallet'; state.revealed.clear(); renderMain(); break;
+      case 'zoom-face': {
+        overlay.innerHTML = `<div class="face-viewer" data-action="close-face-viewer">
+          <img src="${esc(el.dataset.src || '')}" alt="卡面大图">
+          <span class="face-viewer-hint">轻点任意位置关闭</span>
+        </div>`;
+        break;
+      }
+      case 'close-face-viewer': closeSheet(); break;
       case 'back': state.detailId = null; state.revealed.clear(); renderMain(); break;
       case 'edit': openCardForm(state.cards.find((c) => c.id === state.detailId)?.typeKey || 'credit', true); break;
       case 'reveal': await reveal(state.detailId, el.dataset.key); break;
@@ -775,6 +801,7 @@ function onInput(evt) {
 }
 
 function onKeydown(evt) {
+  if (evt.key === 'Escape' && $('.face-viewer', overlay)) { closeSheet(); return; }
   if (evt.key !== 'Enter') return;
   const el = evt.target;
   if (el.id === 'unlock-password') handle('unlock', el);
@@ -785,8 +812,13 @@ function onKeydown(evt) {
   }
 }
 
-async function onFileChange(evt) {
+async function onChange(evt) {
   const el = evt.target;
+  if (el.dataset?.field === 'faceStyle') {
+    const box = $('#face-color-field', overlay);
+    if (box) box.hidden = el.value !== 'solid';
+    return;
+  }
   if (el.id !== 'backup-file') return;
   const file = el.files?.[0];
   if (!file) return;
@@ -802,6 +834,6 @@ root.addEventListener('input', onInput);
 overlay.addEventListener('input', onInput);
 root.addEventListener('keydown', onKeydown);
 overlay.addEventListener('keydown', onKeydown);
-overlay.addEventListener('change', onFileChange);
+overlay.addEventListener('change', onChange);
 
 boot();
