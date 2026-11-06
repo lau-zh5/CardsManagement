@@ -3,6 +3,7 @@ import {
   toast, download, ICONS, isStandalone, isIOS, isSecureContext
 } from './utils.js';
 import { CARD_TYPES, CARD_COLORS, getType, remindFields } from './templates.js';
+import { BANK_FACES, faceInfoFor } from './cardfaces.js';
 import { encryptText, decryptText, encryptBackup, decryptBackup } from './crypto.js';
 import * as DB from './db.js';
 import * as auth from './auth.js';
@@ -199,17 +200,27 @@ function hasUrgent(card) {
 function cardTile(card) {
   const t = getType(card.typeKey);
   const color = safeColor(card.color, t.color);
-  return `<button class="card" data-action="open" data-id="${esc(card.id)}">
-    <div class="card-face" style="background:${color}">
-      <div class="cf-top">
+  const info = faceInfoFor(card);
+  const faceStyle = info
+    ? `background-image:url('${esc(info.image)}')`
+    : `background:${color}`;
+  const num = card.last4 ? '•••• ' + esc(card.last4) : '· · · ·';
+  const inner = info
+    ? `<div class="cf-top"><span></span><span class="cf-dot ${hasUrgent(card) ? 'warn' : ''}"></span></div>
+       <div class="cf-photo-foot">
+         <div class="cf-issuer">${esc(card.issuer || card.nickname)}</div>
+         <div class="cf-num">${num}</div>
+       </div>`
+    : `<div class="cf-top">
         <span class="cf-kind">${esc(t.name)}</span>
         <span class="cf-dot ${hasUrgent(card) ? 'warn' : ''}"></span>
       </div>
       <div>
         <div class="cf-issuer">${esc(card.issuer || card.nickname)}</div>
-        <div class="cf-num">${card.last4 ? '•••• ' + esc(card.last4) : '· · · ·'}</div>
-      </div>
-    </div>
+        <div class="cf-num">${num}</div>
+      </div>`;
+  return `<button class="card" data-action="open" data-id="${esc(card.id)}">
+    <div class="card-face${info ? ' has-photo' : ''}" style="${faceStyle}">${inner}</div>
     <div class="card-meta">
       <span class="name">${esc(card.nickname)}</span>
       <span class="tag">${esc(card.status || '正常')}</span>
@@ -268,10 +279,15 @@ function detailHTML() {
   if (!card) { state.detailId = null; return walletHTML(); }
   const t = getType(card.typeKey);
   const color = safeColor(card.color, t.color);
+  const info = faceInfoFor(card);
+  const heroStyle = info
+    ? `background-image:url('${esc(info.image)}')`
+    : `background:${color}`;
   const basics = [
     ['名称', card.nickname], ['类型', t.name], ['发行机构', card.issuer],
     ['归属人', card.holder], ['状态', card.status || '正常'],
-    ['标签', (card.tags || []).join('、')]
+    ['标签', (card.tags || []).join('、')],
+    ['卡面素材', info ? `${info.bank} · ${info.cardName}` : null]
   ].filter(([, v]) => v);
 
   return `
@@ -282,7 +298,7 @@ function detailHTML() {
         <button class="btn small danger" data-action="delete">删除</button>
       </div>
     </div>
-    <div class="detail-hero" style="background:${color}">
+    <div class="detail-hero${info ? ' has-photo' : ''}" style="${heroStyle}">
       <div class="dh-top">${esc(t.name)}${card.status && card.status !== '正常' ? ' · ' + esc(card.status) : ''}</div>
       <div>
         <div class="dh-name">${esc(card.nickname)}</div>
@@ -355,6 +371,7 @@ function settingsHTML() {
       <div class="kv"><span class="k">加密上下文</span><span class="v">${isSecureContext() ? 'HTTPS / 可用' : '非安全上下文'}</span></div>
       <div class="kv"><span class="k">运行方式</span><span class="v">${standalone ? '主屏 Web App' : (isIOS() ? 'Safari 标签页' : '浏览器')}</span></div>
       <div class="kv"><span class="k">WebAuthn PRF</span><span class="v">${auth.prfSupported() ? '接口可用' : '不可用'}</span></div>
+      <div class="kv"><span class="k">真实卡面图库</span><span class="v">${Object.keys(BANK_FACES).length} 家 / ${Object.values(BANK_FACES).reduce((n, b) => n + b.images.length, 0)} 张</span></div>
       <div class="kv"><span class="k">卡片数量</span><span class="v">${state.cards.length} 张</span></div>
     </div>
 
@@ -412,6 +429,7 @@ function openCardForm(typeKey, editing) {
   const t = getType(typeKey);
   const card = editing ? state.cards.find((c) => c.id === state.detailId) : null;
   state.formColor = card?.color || t.color;
+  state.formFaceStyle = card?.faceStyle || (card?.color && card.color !== t.color ? 'solid' : 'brand');
 
   const basics = `
     <div class="field"><label>名称 <span class="req">*</span></label><input data-field="nickname" value="${esc(card?.nickname || '')}" placeholder="给这张卡起个名字"></div>
@@ -419,7 +437,11 @@ function openCardForm(typeKey, editing) {
     <div class="field"><label>状态</label><select data-field="status">${['正常', '挂失', '已过期', '已注销'].map((s) =>
       `<option value="${s}"${s === (card?.status || '正常') ? ' selected' : ''}>${s}</option>`).join('')}</select></div>
     <div class="field"><label>标签</label><input data-field="tags" value="${esc((card?.tags || []).join('、'))}" placeholder="用顿号分隔"></div>
-    <div class="field"><label>卡面颜色</label><div class="chip-row" style="margin-bottom:0">${CARD_COLORS.map((c) =>
+    <div class="field"><label>卡面样式</label><select data-field="faceStyle">
+      <option value="brand"${state.formFaceStyle === 'brand' ? ' selected' : ''}>自动 · 真实银行卡面</option>
+      <option value="solid"${state.formFaceStyle === 'solid' ? ' selected' : ''}>自定义纯色</option>
+    </select><div class="help">按「发卡行 / 发行机构」自动匹配官方真实卡面，同银行不同卡会轮换；未收录的机构回退为纯色</div></div>
+    <div class="field"><label>卡面颜色（选「自定义纯色」时生效）</label><div class="chip-row" style="margin-bottom:0">${CARD_COLORS.map((c) =>
       `<button class="chip color-chip${state.formColor === c ? ' active' : ''}" data-action="pick-color" data-color="${c}" style="width:34px;height:34px;padding:0;background:${c};border:2px solid ${state.formColor === c ? '#1D1D1F' : 'transparent'}"></button>`
     ).join('')}</div></div>`;
 
@@ -460,6 +482,7 @@ async function saveCard(typeKey, editing) {
     status: read('status') || '正常',
     tags: read('tags').split(/[、,，]/).map((s) => s.trim()).filter(Boolean),
     color: state.formColor || t.color,
+    faceStyle: read('faceStyle') || 'brand',
     issuer,
     last4: digits ? digits.slice(-4) : (prev?.last4 || ''),
     values,
@@ -656,6 +679,8 @@ async function handle(action, el) {
       case 'choose-type': openCardForm(el.dataset.key, false); break;
       case 'pick-color': {
         state.formColor = el.dataset.color;
+        const faceSel = $('[data-field="faceStyle"]', overlay);
+        if (faceSel) faceSel.value = 'solid';
         $$('.color-chip', overlay).forEach((b) => {
           const on = b.dataset.color === state.formColor;
           b.classList.toggle('active', on);

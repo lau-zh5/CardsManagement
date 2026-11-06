@@ -203,6 +203,25 @@ button { cursor: pointer; }
 .detail-hero .dh-name { font-size: 23px; font-weight: 600; letter-spacing: -.4px; z-index: 1; }
 .detail-hero .dh-num { font-size: 15px; letter-spacing: 2px; opacity: .92; z-index: 1; margin-top: 6px; font-variant-numeric: tabular-nums; }
 
+.card-face.has-photo, .detail-hero.has-photo {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: #1B2A4A;
+}
+.card-face.has-photo::after, .detail-hero.has-photo::after { display: none; }
+.card-face.has-photo::before, .detail-hero.has-photo::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(to bottom, rgba(0,0,0,.18) 0%, rgba(0,0,0,0) 40%, rgba(0,0,0,.66) 100%);
+}
+.card-face.has-photo .cf-top, .card-face.has-photo .cf-photo-foot,
+.detail-hero.has-photo .dh-top, .detail-hero.has-photo .dh-name, .detail-hero.has-photo .dh-num {
+  position: relative; z-index: 1;
+  text-shadow: 0 1px 4px rgba(0,0,0,.6);
+}
+.card-face.has-photo .cf-issuer { font-size: 13px; font-weight: 500; }
+.card-face.has-photo .cf-num { opacity: .95; }
+
 .kv { display: flex; justify-content: space-between; gap: 14px; padding: 12px 15px; border-bottom: .5px solid var(--line); font-size: 14px; }
 .kv:last-child { border-bottom: none; }
 .kv .k { color: var(--text-2); flex: none; }
