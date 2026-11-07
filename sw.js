@@ -1,4 +1,6 @@
-const VERSION = 'cardsapp-v4';
+// 离线缓存版本：与 js/app.js 的 APP_VERSION 同步，每次发版一起递增，
+// 否则旧缓存不会失效，用户手机会一直看到上一版页面。
+const VERSION = 'cardsapp-v1.0';
 
 const ASSETS = [
   './',
@@ -31,7 +33,8 @@ const ASSETS = [
   './cardfaces/pab-1.jpg', './cardfaces/pab-2.jpg', './cardfaces/pab-3.jpg',
   './cardfaces/psbc-1.jpg', './cardfaces/psbc-2.jpg', './cardfaces/psbc-3.jpg',
   './cardfaces/spdb-1.jpg', './cardfaces/spdb-2.jpg', './cardfaces/spdb-3.jpg',
-  './cardfaces/webank-1.jpg'
+  './cardfaces/webank-1.jpg',
+  './cardfaces/transit-default.jpg'
 ];
 
 self.addEventListener('install', (event) => {

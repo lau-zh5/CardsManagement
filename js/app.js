@@ -3,13 +3,22 @@ import {
   toast, download, ICONS, isStandalone, isIOS, isSecureContext
 } from './utils.js';
 import { CARD_TYPES, CARD_COLORS, TYPE_ICONS, getType, remindFields } from './templates.js';
-import { BANK_FACES, faceInfoFor } from './cardfaces.js';
+import { BANK_FACES, BANK_OPTIONS, canonicalBankName, TYPE_DEFAULT_FACES, faceInfoFor } from './cardfaces.js';
 import { encryptText, decryptText, encryptBackup, decryptBackup } from './crypto.js';
 import * as DB from './db.js';
 import * as auth from './auth.js';
 
+// ---- 版本信息 ----
+// 正式版从 1.0 起，后续按 1.1 / 1.2 … 递增；每次发版只改 APP_VERSION，
+// 版本号后面的说明文字固定保留，显示在创建 / 解锁主密码界面的最下方。
+// 注意：发版时还要同步修改 sw.js 的 VERSION（离线缓存名），否则旧缓存不会更新。
+const APP_VERSION = '1.0';
+const VERSION_LINE = `version${APP_VERSION} 由iCloud提供服务（2026©）`;
+
 const root = document.getElementById('app');
 const overlay = document.getElementById('overlay-root');
+const OTHER_BANK = '__other__'; // 「发卡行」下拉里「其他 · 手动输入」的哨兵值
+const ICON_CLOSE = '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 const state = {
   tab: 'wallet',
@@ -30,11 +39,33 @@ function safeColor(value, fallback) {
 }
 
 function renderLoading() {
+  // 模块已成功启动，撤销 index.html 里的白屏守卫（避免加载慢时误报）
+  window.__cardsappBooted = true;
+  document.getElementById('boot-guard')?.remove();
   root.innerHTML = '<div class="gate"><img class="logo" src="./icons/icon-180.png" alt="卡包"><h1>卡包</h1><p>正在打开本地保险库…</p></div>';
 }
 
 async function boot() {
-  if ('serviceWorker' in navigator && isSecureContext()) {
+  // 本机 localhost 调试时跳过 Service Worker，避免 cache-first 旧缓存挡住刚改的代码；
+  // 部署到 HTTPS 域名后离线缓存照常启用，行为不变。
+  const localDev = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  if (localDev) {
+    // 早期版本曾在 localhost 注册过 SW。只跳过注册是不够的：已注册的 SW 仍会控制页面，
+    // 可能把旧模块和刚改过的新模块混在一起导致 ES module 导入失败、整页白屏。
+    // 因此本机调试时静默注销残留 SW 并清掉本应用的离线缓存（不影响 IndexedDB 里的卡片数据）。
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations()
+        .then((rs) => Promise.all(rs.map((r) => r.unregister()))).catch(() => {});
+    }
+    if (window.caches) {
+      // 注销不会中止正在跑的 install/activate，SW 可能又把资源写回缓存，所以稍后再清一次。
+      const clearLocalCaches = () => caches.keys()
+        .then((ks) => Promise.all(ks.filter((k) => k.startsWith('cardsapp-')).map((k) => caches.delete(k))))
+        .catch(() => {});
+      clearLocalCaches();
+      setTimeout(clearLocalCaches, 800);
+    }
+  } else if ('serviceWorker' in navigator && isSecureContext()) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
   renderLoading();
@@ -88,6 +119,7 @@ function renderGate() {
         <div class="gate-box"><button class="btn" data-action="retry-boot">重试</button></div>
         <div style="width:100%;max-width:360px;margin-top:26px;text-align:left">${httpsNotice()}</div>
         <p class="hint">不会自动创建新保险库，以免覆盖已有数据</p>
+        <p class="app-version">${VERSION_LINE}</p>
       </div>`;
     return;
   }
@@ -120,6 +152,7 @@ function renderGate() {
         ${installNotice()}
       </div>
       <p class="hint">纯本地 · 无账号 · 无云同步 · 无后端</p>
+      <p class="app-version">${VERSION_LINE}</p>
     </div>`;
 }
 
@@ -163,6 +196,7 @@ function renderMain() {
   else if (state.tab === 'reminders') body = remindersHTML();
   else body = settingsHTML();
   root.innerHTML = `<div class="page">${body}</div>${tabbarHTML()}`;
+  if (state.tab === 'wallet' && !state.detailId) initStack();
 }
 
 function tabbarHTML() {
@@ -197,7 +231,7 @@ function hasUrgent(card) {
   });
 }
 
-function cardTile(card) {
+function cardTile(card, index, active) {
   const t = getType(card.typeKey);
   const color = safeColor(card.color, t.color);
   const info = faceInfoFor(card);
@@ -205,10 +239,11 @@ function cardTile(card) {
     ? `background-image:url('${esc(info.image)}')`
     : `background:${color}`;
   const num = card.last4 ? '•••• ' + esc(card.last4) : '· · · ·';
+  // 卡面（含真实卡面图）只叠加打码卡号，不再叠加发卡机构名称：
+  // 真实卡面顶部本身就有银行名 / logo，避免文字重复遮挡画面。
   const inner = info
     ? `<div class="cf-top"><span></span><span class="cf-dot ${hasUrgent(card) ? 'warn' : ''}"></span></div>
        <div class="cf-photo-foot">
-         <div class="cf-issuer">${esc(card.issuer || card.nickname)}</div>
          <div class="cf-num">${num}</div>
        </div>`
     : `<div class="cf-top">
@@ -216,15 +251,10 @@ function cardTile(card) {
         <span class="cf-dot ${hasUrgent(card) ? 'warn' : ''}"></span>
       </div>
       <div>
-        <div class="cf-issuer">${esc(card.issuer || card.nickname)}</div>
         <div class="cf-num">${num}</div>
       </div>`;
-  return `<button class="card" data-action="open" data-id="${esc(card.id)}">
+  return `<button class="card${active ? ' is-active' : ''}" data-action="open" data-id="${esc(card.id)}" data-index="${index}" aria-label="${esc(card.nickname)}">
     <div class="card-face${info ? ' has-photo' : ''}" style="${faceStyle}">${inner}</div>
-    <div class="card-meta">
-      <span class="name">${esc(card.nickname)}</span>
-      <span class="tag">${esc(card.status || '正常')}</span>
-    </div>
   </button>`;
 }
 
@@ -237,7 +267,63 @@ function gridHTML(list) {
       <button class="btn small secondary" data-action="add">添加卡片</button>
     </div>`;
   }
-  return `<div class="grid">${list.map(cardTile).join('')}</div>`;
+  const step = stackStep(list.length);
+  const hint = list.length > 1
+    ? `卡片叠放在一起，每张卡<b>上方露出的约 ${step}px 区域</b>都可以点击，轻点直接进入该卡详情查看发卡机构等信息`
+    : '轻点卡片即可查看详细信息';
+  return `<div class="wallet-stage">
+    <div class="wallet-stack" role="list" aria-label="卡片堆叠" data-total="${list.length}">
+      ${list.map((c, i) => cardTile(c, i, i === 0)).join('')}
+    </div>
+    <div class="wallet-hint"><span class="wh-mark" aria-hidden="true">↑</span><span>${hint}</span></div>
+  </div>`;
+}
+
+// ---- iPhone 钱包：卡片固定堆叠，上方露出的边缘就是可点击范围 ----
+// 不做展开/收起：后面的卡依次向上错开 step 像素，主卡（第一张）在最下层位置且层级最高，
+// 盖住后面卡的下半部分，每张卡顶部露出的那一条正好是它的点击热区；
+// 真实卡面图顶部自带银行名 / logo，点击热区进入详情可看到「发行机构」。
+const STACK_STEP = 36;       // 每张卡顶部露出的可点击高度
+const STACK_MAX_THICK = 300; // 卡片很多时限制堆叠总厚度
+
+function stackStep(n) {
+  if (n <= 1) return 0;
+  return Math.min(STACK_STEP, Math.max(12, Math.floor(STACK_MAX_THICK / (n - 1))));
+}
+
+function walletStack() {
+  return $('#cards-grid .wallet-stack', root);
+}
+function walletItems() {
+  const stack = walletStack();
+  return stack ? $$('.card', stack) : [];
+}
+
+function layoutStack() {
+  const stack = walletStack();
+  if (!stack) return;
+  const items = walletItems();
+  const n = items.length;
+  if (!n) return;
+  const step = stackStep(n);
+  const H = items[0].querySelector('.card-face')?.offsetHeight || 200;
+  items.forEach((it, i) => {
+    // 后面的卡向上错开：第 i 张的顶部 = (n-1-i) * step，因此每张卡在主卡上方露出一条边
+    it.style.transform = `translateX(-50%) translateY(${(n - 1 - i) * step}px)`;
+    // 卡片层级必须低于 #overlay-root，否则会盖住添加卡片的类型选择器 / 表单
+    it.style.zIndex = String(Math.max(1, 30 - i));
+    it.style.opacity = '1';
+    it.style.pointerEvents = '';
+  });
+  stack.style.height = `${Math.round(H + (n - 1) * step + 4)}px`;
+}
+
+function initStack() {
+  const stack = walletStack();
+  if (!stack) return;
+  stack.classList.add('no-anim'); // 首次布局直接就位，避免卡片从散开状态跳变
+  layoutStack();
+  requestAnimationFrame(() => requestAnimationFrame(() => stack.classList.remove('no-anim')));
 }
 
 function walletHTML() {
@@ -287,19 +373,22 @@ function detailHTML() {
     ['名称', card.nickname], ['类型', t.name], ['发行机构', card.issuer],
     ['归属人', card.holder], ['状态', card.status || '正常'],
     ['标签', (card.tags || []).join('、')],
-    ['卡面素材', info ? `${info.bank} · ${info.cardName}` : null]
+    ['卡面素材', info ? `${info.bank} · ${info.cardName}` : null],
+    ['图片来源', info?.credit || null]
   ].filter(([, v]) => v);
 
   const metaTop = `${esc(t.name)}${card.status && card.status !== '正常' ? ' · ' + esc(card.status) : ''}`;
-  const numLine = card.last4 ? '•••• •••• •••• ' + esc(card.last4) : esc(card.issuer || '');
+  // 卡面上只显示卡号；没有后四位时用纯打码占位，不再回退显示发卡机构名称
+  const numLine = card.last4 ? '•••• •••• •••• ' + esc(card.last4) : '•••• •••• •••• ••••';
   const hero = info
-    ? `<button type="button" class="detail-hero has-photo" style="${heroStyle}" data-action="zoom-face" data-src="${esc(info.image)}" aria-label="放大查看卡面"></button>
+    ? `<button type="button" class="detail-hero has-photo" style="${heroStyle}" data-action="zoom-face" data-src="${esc(info.image)}" aria-label="放大查看卡面">
+         <span class="dh-overlay-num">${numLine}</span>
+       </button>
        <div class="detail-caption">
          <div class="dc-top">${metaTop}</div>
          <div class="dc-name">${esc(card.nickname)}</div>
-         <div class="dc-num">${numLine}</div>
-       </div>
-       <p class="hint-global" style="margin:-8px 0 18px">轻点卡面可放大查看完整图片</p>`
+         <div class="dc-hint">轻点卡面可放大查看完整图片</div>
+       </div>`
     : `<div class="detail-hero" style="${heroStyle}">
          <div class="dh-top">${metaTop}</div>
          <div>
@@ -310,7 +399,7 @@ function detailHTML() {
 
   return `
     <div class="topbar">
-      <button class="icon-btn" data-action="back" aria-label="返回">${ICONS.back}</button>
+      <button class="icon-btn detail-close" data-action="back" aria-label="关闭，返回堆叠卡包">${ICON_CLOSE}</button>
       <div style="display:flex;gap:8px">
         <button class="btn small secondary" data-action="edit">编辑</button>
         <button class="btn small danger" data-action="delete">删除</button>
@@ -384,6 +473,7 @@ function settingsHTML() {
       <div class="kv"><span class="k">运行方式</span><span class="v">${standalone ? '主屏 Web App' : (isIOS() ? 'Safari 标签页' : '浏览器')}</span></div>
       <div class="kv"><span class="k">WebAuthn PRF</span><span class="v">${auth.prfSupported() ? '接口可用' : '不可用'}</span></div>
       <div class="kv"><span class="k">真实卡面图库</span><span class="v">${Object.keys(BANK_FACES).length} 家 / ${Object.values(BANK_FACES).reduce((n, b) => n + b.images.length, 0)} 张</span></div>
+      <div class="kv"><span class="k">默认卡面</span><span class="v">交通卡 ${Object.keys(TYPE_DEFAULT_FACES).length} 张 · CC BY-SA 4.0</span></div>
       <div class="kv"><span class="k">卡片数量</span><span class="v">${state.cards.length} 张</span></div>
     </div>
 
@@ -420,6 +510,23 @@ function fieldHTML(field, value, editSensitive) {
   let input;
   if (field.sensitive) {
     input = `<input type="password" ${attrs} value="" autocomplete="off" placeholder="${editSensitive ? '留空表示不修改' : esc(field.placeholder || '仅加密保存在本机')}">`;
+  } else if (field.type === 'bank') {
+    // 发卡行只允许从「有真实卡面」的银行里挑；选「其他」才展开手动输入。
+    const canonical = canonicalBankName(v);
+    const known = canonical || (BANK_OPTIONS.some((b) => b.name === v) ? v : '');
+    const isOther = !!v && !known;
+    const options = [
+      `<option value=""${!v ? ' selected' : ''}>请选择发卡行</option>`,
+      ...BANK_OPTIONS.map((b) =>
+        `<option value="${esc(b.name)}"${b.name === known ? ' selected' : ''}>${esc(b.name)} · ${esc(b.short)}</option>`),
+      `<option value="${OTHER_BANK}"${isOther ? ' selected' : ''}>其他 · 手动输入</option>`
+    ];
+    input = `<select ${attrs}>${options.join('')}</select>
+      <div class="sub-field" data-other-for="${esc(field.key)}"${isOther ? '' : ' hidden'}>
+        <input type="text" data-field="${esc(field.key)}Other" value="${isOther ? esc(v) : ''}" placeholder="输入发卡银行名称">
+        <div class="help">手动填写的机构若不在图库中，卡面会自动使用纯色</div>
+      </div>
+      <div class="help">下拉中的 ${BANK_OPTIONS.length} 家银行均有内置真实卡面；列表里没有请选「其他」</div>`;
   } else if (field.type === 'select') {
     const opts = field.options.includes(v) ? field.options : [v, ...field.options].filter(Boolean);
     input = `<select ${attrs}>${opts.map((o) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
@@ -473,7 +580,13 @@ function openCardForm(typeKey, editing) {
 
 async function saveCard(typeKey, editing) {
   const t = getType(typeKey);
-  const read = (k) => { const el = $(`[data-field="${k}"]`, overlay); return el ? el.value.trim() : ''; };
+  const read = (k) => {
+    const el = $(`[data-field="${k}"]`, overlay);
+    if (!el) return '';
+    // 「其他」时下拉本身是哨兵值，真正要存的是手动输入的银行名
+    if (el.value === OTHER_BANK) return ($(`[data-field="${k}Other"]`, overlay)?.value || '').trim();
+    return el.value.trim();
+  };
   const nickname = read('nickname');
   if (!nickname) return toast('请填写名称');
   for (const f of t.fields) {
@@ -492,6 +605,8 @@ async function saveCard(typeKey, editing) {
 
   const issuer = values.bank || values.merchant || values.city || values.place || values.service || nickname;
   const digits = (secrets.number || '').replace(/\D/g, '');
+  // 交通卡等卡种没有加密卡号字段，用明文库里的卡号末四位做同样的打码展示
+  const fallbackDigits = String(values.cardNo || '').replace(/\D/g, '');
   const card = {
     id,
     typeKey,
@@ -502,7 +617,7 @@ async function saveCard(typeKey, editing) {
     color: state.formColor || t.color,
     faceStyle: read('faceStyle') || 'brand',
     issuer,
-    last4: digits ? digits.slice(-4) : (prev?.last4 || ''),
+    last4: digits ? digits.slice(-4) : (fallbackDigits ? fallbackDigits.slice(-4) : (prev?.last4 || '')),
     values,
     createdAt: prev?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -708,7 +823,10 @@ async function handle(action, el) {
       }
       case 'save-card': await saveCard(el.dataset.key, el.dataset.edit === '1'); break;
       case 'filter': state.filter = el.dataset.key; renderMain(); break;
-      case 'open': state.detailId = el.dataset.id; state.tab = 'wallet'; state.revealed.clear(); renderMain(); break;
+      case 'open': {
+        state.detailId = el.dataset.id; state.tab = 'wallet'; state.revealed.clear(); renderMain();
+        break;
+      }
       case 'zoom-face': {
         overlay.innerHTML = `<div class="face-viewer" data-action="close-face-viewer">
           <img src="${esc(el.dataset.src || '')}" alt="卡面大图">
@@ -796,12 +914,19 @@ function onInput(evt) {
   if (el.dataset?.input === 'search') {
     state.query = el.value;
     const grid = $('#cards-grid', root);
-    if (grid) grid.innerHTML = gridHTML(filteredCards());
+    if (grid) { grid.innerHTML = gridHTML(filteredCards()); initStack(); }
   }
 }
 
 function onKeydown(evt) {
   if (evt.key === 'Escape' && $('.face-viewer', overlay)) { closeSheet(); return; }
+  // 详情页按 Esc 等同于点右上角 ×，退回堆叠卡包
+  if (evt.key === 'Escape' && state.detailId) {
+    state.detailId = null; state.revealed.clear(); renderMain();
+    return;
+  }
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(evt.target?.tagName || '');
+  if (typing) return;
   if (evt.key !== 'Enter') return;
   const el = evt.target;
   if (el.id === 'unlock-password') handle('unlock', el);
@@ -817,6 +942,11 @@ async function onChange(evt) {
   if (el.dataset?.field === 'faceStyle') {
     const box = $('#face-color-field', overlay);
     if (box) box.hidden = el.value !== 'solid';
+    return;
+  }
+  if (el.dataset?.field === 'bank') {
+    const box = $('[data-other-for="bank"]', overlay);
+    if (box) box.hidden = el.value !== OTHER_BANK;
     return;
   }
   if (el.id !== 'backup-file') return;
@@ -835,5 +965,6 @@ overlay.addEventListener('input', onInput);
 root.addEventListener('keydown', onKeydown);
 overlay.addEventListener('keydown', onKeydown);
 overlay.addEventListener('change', onChange);
+window.addEventListener('resize', () => { if (walletStack()) layoutStack(); });
 
 boot();

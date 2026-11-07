@@ -23,7 +23,7 @@ export const CARD_TYPES = [
   {
     key: 'credit', name: '信用卡', glyph: '信', color: '#1B2A4A',
     fields: [
-      f('bank', '发卡行', 'text', { required: true, placeholder: '如 招商银行' }),
+      f('bank', '发卡行', 'bank', { required: true }),
       f('network', '卡组织', 'select', { options: ['Visa', 'Mastercard', '银联', 'JCB', 'American Express', '其他'] }),
       f('number', '完整卡号', 'text', { sensitive: true, placeholder: '仅加密保存在本机', inputmode: 'numeric' }),
       f('expiry', '有效期', 'month', { remind: 90, placeholder: '卡片到期月份' }),
@@ -38,7 +38,7 @@ export const CARD_TYPES = [
   {
     key: 'debit', name: '储蓄卡', glyph: '蓄', color: '#0F6E56',
     fields: [
-      f('bank', '发卡行', 'text', { required: true }),
+      f('bank', '发卡行', 'bank', { required: true }),
       f('network', '卡组织', 'select', { options: ['银联', 'Visa', 'Mastercard', '其他'] }),
       f('number', '完整卡号', 'text', { sensitive: true, placeholder: '仅加密保存在本机', inputmode: 'numeric' }),
       f('expiry', '有效期', 'month', { remind: 90 }),

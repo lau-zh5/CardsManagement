@@ -1,5 +1,11 @@
 // 真实卡面图来源: github.com/aircardios/apple-pay-card (Apple Pay 官方卡面图库)
 // 图片为压缩后的缩略图, 仅作个人本机卡包展示使用, 请勿商用或二次分发
+//
+// 交通卡默认卡面 cardfaces/transit-default.jpg:
+//   原图 "Quanzhou public bicycle rental card (T-Union).jpg"，作者 Rayista Wang
+//   https://commons.wikimedia.org/wiki/File:Quanzhou_public_bicycle_rental_card（T-Union）.jpg
+//   许可 CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0)
+//   此文件为其裁切 / 缩放 / JPEG 压缩后的演绎作品，同样按 CC BY-SA 4.0 提供
 export const BANK_FACES = {
   "icbc": {
     "name": "中国工商银行",
@@ -345,8 +351,38 @@ export function matchBank(text) {
   return best;
 }
 
+// 表单下拉专用：只列出「确实有内置真实卡面」的银行，选中即可保证匹配到卡面。
+// 以后往 BANK_FACES 里加银行，下拉会自动多出一项，不需要改表单代码。
+export const BANK_OPTIONS = Object.entries(BANK_FACES).map(([key, b]) => ({
+  key,
+  name: b.name,
+  short: b.short,
+  count: b.images.length
+}));
+
+// 把历史上自由输入的别名（工行 / ICBC / 招行…）折回标准银行名，用于编辑时回显。
+export function canonicalBankName(text) {
+  const key = matchBank(text);
+  return key ? BANK_FACES[key].name : null;
+}
+
+// 没有官方图库的卡类型使用一张默认真实卡面，避免退回纯色。
+// 以后要给「会员卡 / 门禁卡」等补默认图，只要在这里加一条并放进 cardfaces/ 即可。
+export const TYPE_DEFAULT_FACES = {
+  transit: {
+    image: "./cardfaces/transit-default.jpg",
+    bank: "交通卡",
+    short: "T-UNION",
+    cardName: "默认卡面 · 泉州交通联合卡",
+    credit: "Wikimedia Commons / Rayista Wang · CC BY-SA 4.0",
+    key: "default-transit"
+  }
+};
+
 export function faceInfoFor(card) {
   if (card.faceStyle === "solid") return null;
+  const fallback = TYPE_DEFAULT_FACES[card.typeKey];
+  if (fallback) return { ...fallback };
   const key = matchBank(card.issuer || card.values?.bank || card.nickname || "");
   if (!key) return null;
   const b = BANK_FACES[key];

@@ -100,23 +100,43 @@ button { cursor: pointer; }
   letter-spacing: .2px;
 }
 
-.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
-.card {
-  border: none; padding: 0; text-align: left;
-  background: transparent; width: 100%;
-  display: block;
+/* 卡包首页：iPhone 钱包固定堆叠，露出的边缘即点击热区（筛选 / 搜索结果同样适用） */
+.wallet-stage { margin: 10px -20px 0; padding-top: 2px; overflow: hidden; }
+.wallet-stack {
+  --card-w: 88%;
+  position: relative;
+  z-index: 0;            /* 自成层叠上下文：卡片的高 z-index 只影响堆叠内部，不会盖住弹层 / 标签栏 */
+  touch-action: pan-y;
+  height: 220px;         /* 由 layoutStack() 按卡片数与露出高度覆盖 */
 }
-.card:active .card-face { transform: scale(.97); }
+.wallet-stack .card {
+  position: absolute;
+  top: 0; left: 50%;
+  width: var(--card-w);
+  border: none; padding: 0; margin: 0; text-align: left;
+  background: transparent; display: block;
+  transform: translateX(-50%);
+  transform-origin: top center;
+  transition: transform .38s cubic-bezier(.22,.7,.24,1);
+  will-change: transform;
+  cursor: pointer;
+}
+.wallet-stack.no-anim .card { transition: none; }
+.wallet-stack .card:not(.is-active) .card-face { filter: brightness(.94) saturate(.96); }
+.wallet-stack .card:active .card-face { transform: scale(.98); }
 .card-face {
   aspect-ratio: 1.62;
-  border-radius: 18px;
-  padding: 14px;
+  border-radius: 20px;
+  padding: 16px;
   color: #fff;
   position: relative;
   overflow: hidden;
   display: flex; flex-direction: column; justify-content: space-between;
-  transition: transform .16s ease;
-  box-shadow: 0 5px 16px rgba(0,0,0,.14);
+  box-shadow: 0 6px 18px rgba(0,0,0,.18);
+  transition: box-shadow .34s ease, transform .16s ease;
+}
+.card.is-active .card-face {
+  box-shadow: 0 14px 28px rgba(0,0,0,.22), 0 2px 6px rgba(0,0,0,.08);
 }
 .card-face::after {
   content: ''; position: absolute;
@@ -128,11 +148,26 @@ button { cursor: pointer; }
 .card-face .cf-kind { font-size: 11px; opacity: .85; letter-spacing: .3px; }
 .card-face .cf-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.65); flex: none; margin-top: 5px; }
 .card-face .cf-dot.warn { background: #FFD166; }
-.card-face .cf-issuer { font-size: 15px; font-weight: 600; letter-spacing: -.2px; z-index: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-face .cf-num { font-size: 12px; opacity: .85; letter-spacing: 1.2px; z-index: 1; margin-top: 2px; }
-.card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 8px 3px 0; }
-.card-meta .name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-meta .tag { font-size: 11px; color: var(--text-3); flex: none; }
+.card-face .cf-num { font-size: 13px; opacity: .9; letter-spacing: 1.4px; z-index: 1; font-variant-numeric: tabular-nums; }
+.wallet-hint {
+  display: flex; align-items: flex-start; gap: 8px;
+  width: calc(100% - 40px); max-width: 340px;
+  margin: 18px auto 0; padding-top: 14px;
+  border-top: .5px solid var(--line);
+  color: var(--text-3); font-size: 11.5px; line-height: 1.6;
+}
+.wallet-hint b { color: var(--text-2); font-weight: 600; }
+.wh-mark {
+  flex: none; width: 18px; height: 18px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 12px; font-weight: 700; line-height: 1;
+}
+.detail-close { color: var(--text-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .wallet-stack .card, .card-face { transition-duration: .01ms; }
+}
 
 .empty { text-align: center; padding: 64px 24px; color: var(--text-2); }
 .empty .empty-icon { font-size: 42px; opacity: .35; margin-bottom: 12px; line-height: 1; }
@@ -220,10 +255,9 @@ button { cursor: pointer; }
   position: relative; z-index: 1;
   text-shadow: 0 1px 4px rgba(0,0,0,.6);
 }
-.card-face.has-photo .cf-issuer { font-size: 13px; font-weight: 500; }
-.card-face.has-photo .cf-num { opacity: .95; }
+.card-face.has-photo .cf-num { opacity: .98; font-size: 14px; font-weight: 500; }
 
-/* 详情页：按卡面原比例完整展示，不裁切、不叠字 */
+/* 详情页：按卡面原比例完整展示，不裁切；仅底部叠一条打码卡号 */
 .detail-hero.has-photo {
   display: block; width: 100%; min-height: 0;
   aspect-ratio: 640 / 404;
@@ -237,13 +271,29 @@ button { cursor: pointer; }
   cursor: zoom-in;
 }
 .detail-hero.has-photo::before { display: none; }
+.detail-hero.has-photo .dh-overlay-num {
+  position: absolute; left: 14px; bottom: 13px; z-index: 1;
+  display: inline-block; padding: 7px 12px;
+  border-radius: 9px;
+  background: rgba(0,0,0,.46);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-size: 14px; font-weight: 500;
+  letter-spacing: 1.6px; color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0,0,0,.7);
+}
 .detail-caption {
   background: var(--surface); border: .5px solid var(--line);
   border-radius: var(--radius); padding: 13px 16px 15px;
 }
 .detail-caption .dc-top { font-size: 12px; color: var(--text-2); }
 .detail-caption .dc-name { font-size: 21px; font-weight: 600; letter-spacing: -.4px; margin-top: 3px; }
-.detail-caption .dc-num { font-size: 14px; letter-spacing: 2px; color: var(--text-2); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.detail-caption .dc-hint {
+  font-size: 11.5px; color: var(--text-3);
+  margin-top: 11px; padding-top: 9px;
+  border-top: .5px solid var(--line);
+}
 
 .face-viewer {
   position: fixed; inset: 0; z-index: 60;
@@ -288,9 +338,20 @@ button { cursor: pointer; }
 .notice li { margin: 3px 0; }
 
 .gate {
+  position: relative;
   min-height: 100vh; min-height: 100dvh;
   padding: calc(var(--safe-top) + 60px) 30px calc(var(--safe-bottom) + 30px);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center;
+}
+/* 版本署名固定在主密码界面最下方 */
+.gate p.app-version {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: calc(var(--safe-bottom) + 12px);
+  margin: 0; max-width: none;
+  font-size: 11px; color: var(--text-3);
+  letter-spacing: .3px; line-height: 1.5;
   text-align: center;
 }
 .gate .logo { width: 76px; height: 76px; border-radius: 19px; margin-bottom: 22px; box-shadow: 0 8px 24px rgba(0,113,227,.28); }
@@ -312,9 +373,11 @@ button { cursor: pointer; }
 .field textarea { min-height: 76px; resize: vertical; }
 .field .help { font-size: 11.5px; color: var(--text-3); margin-top: 5px; }
 .field select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236E6E73' stroke-width='1.6' fill='none'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 34px; }
+/* 发卡行选「其他」后展开的手动输入区 */
+.field .sub-field { margin-top: 9px; padding-left: 12px; border-left: 2px solid var(--line); }
 .sensitive-mark { color: var(--danger); font-size: 11px; margin-left: 5px; }
 
-#overlay-root { position: relative; z-index: 40; }
+#overlay-root { position: relative; z-index: 100; }
 .backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.34); z-index: 40;
   animation: fade .18s ease-out;
@@ -355,7 +418,7 @@ button { cursor: pointer; }
 .type-tile .type-icon svg { width: 30px; height: 30px; }
 .type-tile .type-label { font-size: 12px; font-weight: 500; white-space: nowrap; }
 
-#toast-root { position: fixed; top: calc(var(--safe-top) + 14px); left: 0; right: 0; z-index: 90; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+#toast-root { position: fixed; top: calc(var(--safe-top) + 14px); left: 0; right: 0; z-index: 120; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .toast {
   background: rgba(29,29,31,.92); color: #fff; font-size: 13.5px;
   padding: 10px 16px; border-radius: 999px; max-width: 88%;
